@@ -35,7 +35,7 @@ async def crawl_venues():
     async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
             # Fetch and process data from the current page
-            venues, duplicate_found = await fetch_and_process_page(
+            venues, no_results_found = await fetch_and_process_page(
                 crawler,
                 page_number,
                 BASE_URL,
@@ -46,21 +46,27 @@ async def crawl_venues():
                 seen_names,
             )
 
-            if duplicate_found:
-                break  # Stop crawling if a duplicate is found
+            if no_results_found:
+                print("No more venues found. Ending crawl.")
+                break  # Stop crawling when "No Results Found" message appears
 
             if not venues:
-                break  # No more venues to process
+                print(f"No venues extracted from page {page_number}.")
+                break  # Stop if no venues are extracted
 
             # Add the venues from this page to the total list
             all_venues.extend(venues)
             page_number += 1  # Move to the next page
 
             # Pause between requests to be polite and avoid rate limits
-            await asyncio.sleep(10)  # Sleep for 10 seconds
+            await asyncio.sleep(2)  # Adjust sleep time as needed
 
     # Save the collected venues to a CSV file
-    save_venues_to_csv(all_venues, "complete_venues.csv")
+    if all_venues:
+        save_venues_to_csv(all_venues, "complete_venues.csv")
+        print(f"Saved {len(all_venues)} venues to 'complete_venues.csv'.")
+    else:
+        print("No venues were found during the crawl.")
 
     # Display usage statistics for the LLM strategy
     llm_strategy.show_usage()
