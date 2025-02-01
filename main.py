@@ -1,117 +1,76 @@
 import asyncio
-import csv
-import json
-import os
 
-from crawl4ai import AsyncWebCrawler, CacheMode, LLMExtractionStrategy
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler
 from dotenv import load_dotenv
-from pydantic import BaseModel
+
+from config import BASE_URL, CSS_SELECTOR, REQUIRED_KEYS
+from utils.data_utils import (
+    save_venues_to_csv,
+)
+from utils.scraper_utils import (
+    fetch_and_process_page,
+    get_browser_config,
+    get_llm_strategy,
+)
 
 load_dotenv()
 
 
-async def main():
-    load_dotenv()
-
-    browser_config = BrowserConfig(
-        browser_type="chromium",
-        headless=False,
-        verbose=True,
-    )  # Default browser configuration
-
-    class Venue(BaseModel):
-        name: str
-        location: str
-        price: str
-        capacity: str
-        rating: str
-        reviews: str
-        description: str
-
-    llm_strategy = LLMExtractionStrategy(
-        provider="groq/deepseek-r1-distill-llama-70b",
-        api_token=os.getenv("GROQ_API_KEY"),
-        schema=Venue.model_json_schema(),
-        extraction_type="schema",
-        instruction=(
-            "Extract all venue objects with 'name', 'location', 'price', 'capacity', "
-            "'rating', 'reviews', and a 1 sentence description of the venue from the "
-            "following content."
-        ),
-        input_format="markdown",
-        verbose=True,
-    )
-
+async def crawl_venues():
+    """
+    Main function to crawl venue data from the website.
+    """
+    # Initialize configurations
+    browser_config = get_browser_config()
+    llm_strategy = get_llm_strategy()
     session_id = "venue_crawl_session"
 
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        base_url = (
-            "https://www.theknot.com/marketplace/wedding-reception-venues-atlanta-ga"
-        )
-        page_number = 1
-        all_venues = []
+    # Initialize state variables
+    page_number = 1
+    all_venues = []
+    seen_names = set()
 
+    # Start the web crawler context
+    # https://docs.crawl4ai.com/api/async-webcrawler/#asyncwebcrawler
+    async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
-            url = f"{base_url}?page={page_number}"
-            print(f"Loading page {page_number}...")
-            result = await crawler.arun(
-                url=url,
-                config=CrawlerRunConfig(
-                    cache_mode=CacheMode.BYPASS,
-                    extraction_strategy=llm_strategy,
-                    css_selector="[class^='info-container']",
-                    session_id=session_id,
-                ),
+            # Fetch and process data from the current page
+            venues, duplicate_found = await fetch_and_process_page(
+                crawler,
+                page_number,
+                BASE_URL,
+                CSS_SELECTOR,
+                llm_strategy,
+                session_id,
+                REQUIRED_KEYS,
+                seen_names,
             )
 
-            if result.success and result.extracted_content:
-                extracted_data = json.loads(result.extracted_content)
-                if not extracted_data:
-                    print("No more venues found. Ending crawl.")
-                    break
+            if duplicate_found:
+                break  # Stop crawling if a duplicate is found
 
-                complete_venues = [
-                    venue
-                    for venue in extracted_data
-                    if all(
-                        key in venue
-                        for key in [
-                            "name",
-                            "price",
-                            "location",
-                            "capacity",
-                            "rating",
-                            "reviews",
-                            "description",
-                        ]
-                    )
-                ]
-                all_venues.extend(complete_venues)
-                print(
-                    f"Extracted {len(complete_venues)} venues from page {page_number}."
-                )
+            if not venues:
+                break  # No more venues to process
 
-                page_number += 1
-                # Pause for 10 seconds to be polite to the server and to not hit Groq Limit
-                # of 6,000 tokens per minute
-                await asyncio.sleep(10)
-            else:
-                print(f"Error: {result.error_message}")
-                break
+            # Add the venues from this page to the total list
+            all_venues.extend(venues)
+            page_number += 1  # Move to the next page
 
-        if all_venues:
-            # Save to CSV
-            with open(
-                "complete_venues.csv", mode="w", newline="", encoding="utf-8"
-            ) as file:
-                writer = csv.DictWriter(file, fieldnames=all_venues[0].keys())
-                writer.writeheader()
-                writer.writerows(all_venues)
+            # Pause between requests to be polite and avoid rate limits
+            await asyncio.sleep(10)  # Sleep for 10 seconds
 
-            print(f"Saved {len(all_venues)} venues to 'complete_venues.csv'.")
+    # Save the collected venues to a CSV file
+    save_venues_to_csv(all_venues, "complete_venues.csv")
 
-        llm_strategy.show_usage()
+    # Display usage statistics for the LLM strategy
+    llm_strategy.show_usage()
+
+
+async def main():
+    """
+    Entry point of the script.
+    """
+    await crawl_venues()
 
 
 if __name__ == "__main__":
