@@ -10,8 +10,8 @@ from crawl4ai import (
     LLMExtractionStrategy,
 )
 
-from models.venue import Venue
-from utils.data_utils import is_complete_venue, is_duplicate_venue
+from models.venue import Product
+from utils.data_utils import is_complete_product, is_duplicate_product
 
 
 def get_browser_config() -> BrowserConfig:
@@ -40,12 +40,32 @@ def get_llm_strategy() -> LLMExtractionStrategy:
     return LLMExtractionStrategy(
         provider="groq/deepseek-r1-distill-llama-70b",  # Name of the LLM provider
         api_token=os.getenv("GROQ_API_KEY"),  # API token for authentication
-        schema=Venue.model_json_schema(),  # JSON schema of the data model
+        schema=Product.model_json_schema(),  # JSON schema of the data model
         extraction_type="schema",  # Type of extraction to perform
         instruction=(
-            "Extract all venue objects with 'name', 'location', 'price', 'capacity', "
-            "'rating', 'reviews', and a 1 sentence description of the venue from the "
-            "following content."
+            """
+            You are extracting product information from PetMart.vn, a Vietnamese pet supply website.
+            
+            Extract the following information for each pet product in JSON format:
+            - name: Full product name
+            - category: Product category (like "Dog Food", "Dog Accessories", etc.)
+            - price: Product price including currency (VND)
+            - brand: Brand name if available (can be null)
+            - image_url: Full URL of the main product image
+            
+            For image URLs, if you see a relative path starting with "/", prepend "https://www.petmart.vn".
+            
+            Example response format:
+            {
+                "name": "Royal Canin Medium Adult",
+                "category": "Dog Food",
+                "price": "350.000 VND",
+                "brand": "Royal Canin",
+                "image_url": "https://www.petmart.vn/path/to/image.jpg"
+            }
+            
+            Make sure to extract complete information when possible and set null values when information is not found.
+            """
         ),  # Instructions for the LLM
         input_format="markdown",  # Format of the input content
         verbose=True,  # Enable verbose logging
@@ -76,6 +96,7 @@ async def check_no_results(
             session_id=session_id,
         ),
     )
+    
 
     if result.success:
         if "No Results Found" in result.cleaned_html:
@@ -99,7 +120,7 @@ async def fetch_and_process_page(
     seen_names: Set[str],
 ) -> Tuple[List[dict], bool]:
     """
-    Fetches and processes a single page of venue data.
+    Fetches and processes a single page of product data.
 
     Args:
         crawler (AsyncWebCrawler): The web crawler instance.
@@ -108,12 +129,12 @@ async def fetch_and_process_page(
         css_selector (str): The CSS selector to target the content.
         llm_strategy (LLMExtractionStrategy): The LLM extraction strategy.
         session_id (str): The session identifier.
-        required_keys (List[str]): List of required keys in the venue data.
-        seen_names (Set[str]): Set of venue names that have already been seen.
+        required_keys (List[str]): List of required keys in the product data.
+        seen_names (Set[str]): Set of product names that have already been seen.
 
     Returns:
         Tuple[List[dict], bool]:
-            - List[dict]: A list of processed venues from the page.
+            - List[dict]: A list of processed products from the page.
             - bool: A flag indicating if the "No Results Found" message was encountered.
     """
     url = f"{base_url}?page={page_number}"
@@ -142,36 +163,36 @@ async def fetch_and_process_page(
     # Parse extracted content
     extracted_data = json.loads(result.extracted_content)
     if not extracted_data:
-        print(f"No venues found on page {page_number}.")
+        print(f"No products found on page {page_number}.")
         return [], False
 
     # After parsing extracted content
     print("Extracted data:", extracted_data)
 
-    # Process venues
-    complete_venues = []
-    for venue in extracted_data:
-        # Debugging: Print each venue to understand its structure
-        print("Processing venue:", venue)
+    # Process products
+    complete_products = []
+    for product in extracted_data:
+        # Debugging: Print each product to understand its structure
+        print("Processing product:", product)
 
         # Ignore the 'error' key if it's False
-        if venue.get("error") is False:
-            venue.pop("error", None)  # Remove the 'error' key if it's False
+        if product.get("error") is False:
+            product.pop("error", None)  # Remove the 'error' key if it's False
 
-        if not is_complete_venue(venue, required_keys):
-            continue  # Skip incomplete venues
+        if not is_complete_product(product, required_keys):
+            continue  # Skip incomplete products
 
-        if is_duplicate_venue(venue["name"], seen_names):
-            print(f"Duplicate venue '{venue['name']}' found. Skipping.")
-            continue  # Skip duplicate venues
+        if is_duplicate_product(product["name"], seen_names):
+            print(f"Duplicate product '{product['name']}' found. Skipping.")
+            continue  # Skip duplicate products
 
-        # Add venue to the list
-        seen_names.add(venue["name"])
-        complete_venues.append(venue)
+        # Add product to the list
+        seen_names.add(product["name"])
+        complete_products.append(product)
 
-    if not complete_venues:
-        print(f"No complete venues found on page {page_number}.")
+    if not complete_products:
+        print(f"No complete products found on page {page_number}.")
         return [], False
 
-    print(f"Extracted {len(complete_venues)} venues from page {page_number}.")
-    return complete_venues, False  # Continue crawling
+    print(f"Extracted {len(complete_products)} products from page {page_number}.")
+    return complete_products, False  # Continue crawling

@@ -1,15 +1,9 @@
 from pydantic import BaseModel
+from typing import Optional
 
-
-class Venue(BaseModel):
-    """
-    Represents the data structure of a Venue.
-    """
-
+class Product(BaseModel):
     name: str
-    location: str
+    category: str
     price: str
-    capacity: str
-    rating: float
-    reviews: int
-    description: str
+    brand: Optional[str] = None  # Có thể không có đủ thông tin về brand
+    image_url: str

@@ -1,13 +1,9 @@
 # config.py
 
-BASE_URL = "https://www.theknot.com/marketplace/wedding-reception-venues-atlanta-ga"
-CSS_SELECTOR = "[class^='info-container']"
+BASE_URL = "https://www.petmart.vn/khay-ve-sinh-cho"
+CSS_SELECTOR = ".shop-container"
 REQUIRED_KEYS = [
     "name",
     "price",
-    "location",
-    "capacity",
-    "rating",
-    "reviews",
-    "description",
+    "image_url",
 ]
